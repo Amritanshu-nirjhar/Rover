@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mars Rover Images</title>
+<style>
+  :root { --bg:#faf6f2; --fg:#2a1d17; --muted:#7a6a60; --card:#fff; --line:#e6dbd2; --accent:#c1440e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16110f; --fg:#f1e7e0; --muted:#a8968b; --card:#211915; --line:#3a2c25; --accent:#ff7a3d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header, main { max-width:1200px; margin:0 auto; padding:16px; }
+  h1 { margin:8px 0 4px; font-size:1.6rem; }
+  h1 span { color:var(--accent); }
+  p.sub { margin:0 0 16px; color:var(--muted); }
+  form { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+  label { display:flex; flex-direction:column; font-size:.8rem; color:var(--muted); gap:4px; }
+  select, input, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); }
+  input { width:110px; }
+  button { background:var(--accent); border-color:var(--accent); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { color:var(--muted); margin:16px 0; min-height:1.5em; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+  figure { margin:0; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  figure a { display:block; aspect-ratio:1; background:#000; }
+  figure img { width:100%; height:100%; object-fit:cover; display:block; }
+  figcaption { padding:8px 10px; font-size:.8rem; color:var(--muted); }
+  figcaption b { display:block; color:var(--fg); font-weight:600; }
+  #more { display:block; margin:20px auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mars Rover <span>Images</span></h1>
+  <p class="sub">Raw images straight from NASA's Perseverance and Curiosity rovers. <a href="index.html" style="color:var(--accent)">← Explore Mars in 3D</a></p>
+  <form id="f">
+    <label>Rover
+      <select id="rover">
+        <option value="perseverance">Perseverance</option>
+        <option value="curiosity">Curiosity</option>
+      </select>
+    </label>
+    <label>Sol (Mars day)
+      <input id="sol" type="number" min="0" placeholder="latest">
+    </label>
+    <button>Show images</button>
+  </form>
+</header>
+<main>
+  <div id="status" role="status"></div>
+  <div id="grid"></div>
+  <button id="more" hidden>Load more</button>
+</main>
+<script>
+const PER_PAGE = 50;
+const $ = id => document.getElementById(id);
+let state = { rover: '', sol: null, page: 0 };
+
+// Both NASA feeds allow CORS; each is normalized to { src, full, title, date, sol }.
+const ROVERS = {
+  perseverance: {
+    url: (sol, page) => 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020&feedtype=json&order=sol+desc'
+      + `&num=${PER_PAGE}&page=${page}&extended=sample_type::full,`
+      + (sol == null ? '' : `&condition_2=${sol}:sol:gte&condition_3=${sol}:sol:lte`),
+    parse: d => ({
+      more: (d.page + 1) * PER_PAGE < d.total_results,
+      items: d.images.map(i => ({ src: i.image_files.medium, full: i.image_files.full_res, link: i.link,
+        title: i.camera.instrument.replace(/_/g, ' '), date: i.date_taken_utc, sol: i.sol })),
+    }),
+  },
+  curiosity: {
+    url: (sol, page) => 'https://mars.nasa.gov/api/v1/raw_image_items/?order=sol%20desc&condition_1=msl:mission'
+      + `&per_page=${PER_PAGE}&page=${page}` + (sol == null ? '' : `&condition_2=${sol}:sol:in`),
+    parse: d => ({
+      more: d.more,
+      // ponytail: thumbnails filtered client-side (API has no filter), so a page may show < 50
+      items: d.items.filter(i => !i.is_thumbnail).map(i => ({ src: i.https_url, full: i.https_url,
+        link: 'https://mars.nasa.gov' + i.link, title: i.instrument.replace(/_/g, ' '), date: i.date_taken, sol: i.sol })),
+    }),
+  },
+};
+
+async function load() {
+  const r = ROVERS[state.rover];
+  $('more').disabled = true;
+  $('status').textContent = 'Loading…';
+  try {
+    const res = await fetch(r.url(state.sol, state.page));
+    if (!res.ok) throw new Error('NASA API returned ' + res.status);
+    const { items, more } = r.parse(await res.json());
+    // No sol given: lock onto the newest sol so "load more" stays within one day.
+    if (state.sol == null && items.length) { state.sol = items[0].sol; $('sol').value = state.sol; return load(); }
+    for (const i of items) {
+      const fig = document.createElement('figure');
+      fig.innerHTML = `<a target="_blank" rel="noopener"><img loading="lazy"></a><figcaption><b></b><span></span></figcaption>`;
+      fig.querySelector('a').href = i.full;
+      Object.assign(fig.querySelector('img'), { src: i.src, alt: `${i.title}, sol ${i.sol}` });
+      fig.querySelector('b').textContent = i.title;
+      fig.querySelector('span').innerHTML = `${new Date(i.date).toUTCString().slice(5, 22)} UTC · <a target="_blank" rel="noopener">details</a>`;
+      fig.querySelector('span a').href = i.link;
+      $('grid').append(fig);
+    }
+    const n = $('grid').children.length;
+    $('status').textContent = n ? `${n} images from sol ${state.sol}` : `No images for sol ${state.sol}. Try another day.`;
+    $('more').hidden = !more;
+  } catch (e) {
+    $('status').textContent = 'Could not load images: ' + e.message;
+  }
+  $('more').disabled = false;
+}
+
+$('f').onsubmit = e => {
+  e.preventDefault();
+  const v = $('sol').value;
+  state = { rover: $('rover').value, sol: v === '' ? null : +v, page: 0 };
+  $('grid').replaceChildren();
+  $('more').hidden = true;
+  load();
+};
+$('rover').onchange = () => { $('sol').value = ''; $('f').requestSubmit(); };
+$('more').onclick = () => { state.page++; load(); };
+$('f').requestSubmit();
+</script>
+</body>
+</html>

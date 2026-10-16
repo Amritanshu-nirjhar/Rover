@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Explore Mars</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; overflow:hidden; background:#000; font:14px/1.4 system-ui, sans-serif; color:#fff; }
+  canvas#scene { display:block; touch-action:none; }
+  .hud { position:fixed; background:rgba(22,17,15,.72); backdrop-filter:blur(6px); border-radius:10px; padding:10px 14px; }
+  button { font:inherit; color:#fff; background:#c1440e; border:0; border-radius:8px; padding:7px 12px; cursor:pointer; }
+  button:hover { filter:brightness(1.15); }
+  a { color:#ffb38a; }
+  [hidden] { display:none !important; }
+
+  /* Orbit view */
+  #title { position:fixed; top:6vh; left:0; right:0; text-align:center; pointer-events:none; }
+  #title h1 { margin:0; font:700 clamp(3rem, 10vw, 7.5rem)/1 'Syncopate', system-ui, sans-serif; letter-spacing:.32em; padding-left:.32em;
+    background:linear-gradient(170deg, #fff 20%, #ffd2b3 50%, #e2683a 95%); -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 0 28px rgba(255,110,60,.35)) drop-shadow(0 2px 2px rgba(0,0,0,.6));
+    animation:intro 3s cubic-bezier(.2,.8,.2,1) both; }
+  #title p { margin:14px 0 0; font:400 .7rem 'Syncopate', system-ui, sans-serif; color:#e8d6c9; letter-spacing:.3em; text-transform:uppercase;
+    text-shadow:0 1px 6px rgba(0,0,0,.8); animation:intro 3s .8s both; }
+  @keyframes intro { from { opacity:0; letter-spacing:1.2em; filter:blur(8px); } }
+  #sites { left:12px; bottom:12px; display:flex; flex-direction:column; gap:6px; max-width:290px; }
+  #sites b { font-size:.8rem; color:#e8d6c9; font-weight:500; }
+  #sites button { background:#2a1d17; border:1px solid #5ff4ff66; text-align:left; }
+  #sites .station-link { display:block; margin-top:4px; padding:7px 12px; border-radius:8px; border:1px solid #9fdcff88; background:#0d1624; color:#cfeaff; text-decoration:none; }
+  #sites .mission-link { border-color:#5dff9a88; background:#0b1a12; color:#d6ffe4; }
+  #sites .mission-link .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#5dff9a; margin-right:8px; animation:pulse 1.4s infinite; }
+  #coords { pointer-events:none; padding:4px 8px; font-size:.75rem; font-variant-numeric:tabular-nums; }
+  #pick { left:50%; bottom:24px; transform:translateX(-50%); display:flex; gap:12px; align-items:center; white-space:nowrap; }
+  .label { position:fixed; transform:translate(-50%, -150%); font-size:.72rem; padding:2px 7px; border-radius:6px;
+    background:rgba(0,0,0,.6); border:1px solid #5ff4ff88; pointer-events:none; white-space:nowrap; }
+
+  /* Surface view */
+  #info { top:12px; left:12px; max-width:min(420px, calc(100% - 220px)); }
+  #info h1 { margin:0 0 4px; font-size:1.05rem; }
+  #info p { margin:2px 0 0; color:#e8d6c9; font-size:.78rem; }
+  #info button { margin-top:8px; background:#2a1d17; border:1px solid #ffb38a88; }
+  #map { position:fixed; top:12px; right:12px; width:180px; height:180px; border-radius:10px; border:1px solid rgba(255,255,255,.2); }
+  #toast { left:50%; bottom:24px; transform:translateX(-50%); max-width:min(70vw, 520px); text-align:center; }
+  #pad { position:fixed; right:12px; bottom:12px; display:grid; grid-template-columns:repeat(3, 56px); gap:6px; }
+  #pad button { height:56px; font-size:1.3rem; background:rgba(22,17,15,.72); touch-action:none; user-select:none; }
+  @media (hover:hover) and (pointer:fine) { #pad { display:none; } }
+
+  /* Shared */
+  #liveBtn { position:fixed; right:12px; bottom:12px; background:#2a1d17; border:1px solid #ff5a3d; z-index:2; }
+  body.surface #liveBtn { right:auto; left:12px; }
+  @media not ((hover:hover) and (pointer:fine)) { #toast { bottom:80px; } }
+  #liveBtn::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; background:#ff3d3d; margin-right:6px; animation:pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity:.2; } }
+  .sheet { position:fixed; background:rgba(22,17,15,.95); border-radius:12px; padding:16px; overflow:auto; display:none; z-index:3; }
+  #panel { top:204px; right:12px; bottom:12px; width:min(320px, calc(100% - 24px)); background:rgba(22,17,15,.82); backdrop-filter:blur(6px); }
+  @media not ((hover:hover) and (pointer:fine)) { #panel { bottom:144px; } }
+  #live { top:12px; right:12px; bottom:12px; width:min(380px, calc(100% - 24px)); }
+  .sheet h2 { margin:0 0 4px; font-size:1.05rem; padding-right:44px; }
+  .sheet p { margin:0 0 12px; color:#e8d6c9; font-size:.85rem; }
+  .close { position:absolute; top:12px; right:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(130px,1fr)); gap:8px; }
+  .grid img { width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; display:block; background:#000; }
+  .feed a { display:flex; gap:10px; color:#fff; text-decoration:none; margin-bottom:10px; font-size:.8rem; }
+  .feed img { width:84px; height:84px; object-fit:cover; border-radius:6px; background:#000; flex:none; }
+  .feed small { color:#bfaea3; display:block; }
+  #fade { position:fixed; inset:0; z-index:4; display:grid; place-content:center; text-align:center; letter-spacing:.2em; text-transform:uppercase;
+    background:radial-gradient(#e2a77e, #8a4a2c); opacity:0; pointer-events:none; transition:opacity .8s; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="globeUI">
+  <div id="title"><h1>MARS</h1><p>Drag to spin · click anywhere to land a rover</p></div>
+  <div id="labels"></div>
+  <div id="coords" class="hud" hidden></div>
+  <div id="sites" class="hud">
+    <b>Land at a rover's real position today</b>
+    <button data-site="perseverance">Perseverance · Jezero Crater</button>
+    <button data-site="curiosity">Curiosity · Gale Crater</button>
+    <a href="stations.html" class="station-link">🛰 Explore the Space Station →</a>
+    <a href="mission.html" class="station-link mission-link"><span class="dot"></span>Live Mission Control · NASA Eyes →</a>
+    <a href="gallery.html">Raw image gallery</a>
+  </div>
+  <div id="pick" class="hud" hidden><span id="pickText"></span><button id="landBtn">Land rover here</button></div>
+</div>
+
+<div id="surfaceUI" hidden>
+  <div id="info" class="hud">
+    <h1 id="sTitle"></h1>
+    <p id="where"></p>
+    <p id="credit"></p>
+    <p><b>Scroll</b> to drive to the next rover stop (scroll up to go back) · <b>WASD</b> to drive yourself · drag to look · pinch or ctrl+scroll to zoom.</p>
+    <p id="stopsLine">Real rover stops visited: <b id="count">0</b>/<span id="total">0</span></p>
+    <button id="orbitBtn">↑ Back to orbit</button>
+  </div>
+  <canvas id="map" width="180" height="180"></canvas>
+  <div id="toast" class="hud" role="status"></div>
+  <div id="pad">
+    <span></span><button data-k="f" aria-label="Forward">▲</button><span></span>
+    <button data-k="l" aria-label="Turn left">◀</button><button data-k="b" aria-label="Reverse">▼</button><button data-k="r" aria-label="Turn right">▶</button>
+  </div>
+</div>
+
+<button id="liveBtn">Live feed</button>
+<div id="panel" class="sheet" role="complementary" aria-labelledby="ptitle">
+  <button class="close" aria-label="Close">✕</button>
+  <h2 id="ptitle"></h2><p id="pmeta"></p><div class="grid" id="pgrid"></div>
+</div>
+<div id="live" class="sheet" role="dialog" aria-labelledby="ltitle">
+  <button class="close" aria-label="Close">✕</button>
+  <h2 id="ltitle">Live from Mars</h2>
+  <p id="lmeta">Newest raw images downlinked from Perseverance and Curiosity. Refreshes every 5 minutes.</p>
+  <div class="feed" id="lfeed"></div>
+</div>
+<div id="fade"></div>
+
+<script src="music.js" defer></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const $ = id => document.getElementById(id);
+const R = 3396190, D = Math.PI / 180;
+const MMGIS = 'https://mars.nasa.gov/mmgis-maps/';
+const RAW = (sol, num) => 'https://mars.nasa.gov/rss/api/?feed=raw_images&category=mars2020&feedtype=json&order=sol+desc'
+  + `&num=${num}&extended=sample_type::full,` + (sol == null ? '' : `&condition_2=${sol}:sol:gte&condition_3=${sol}:sol:lte`);
+const getJSON = u => fetch(u).then(r => { if (!r.ok) throw Error('HTTP ' + r.status); return r.json(); });
+const loadImg = src => new Promise(ok => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => ok(i); i.onerror = () => ok(null); i.src = src; });
+const rand = (a, b) => a + Math.random() * (b - a);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmt = (lat, lon) => `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+
+// ---- Missions: live positions, past stops and raw images (all free NASA feeds) ----
+const MISSIONS = {
+  perseverance: {
+    name: 'Perseverance', site: 'Jezero Crater', dir: 'M20',
+    hirise: { layer: 'M20_HiRISE_RGB_CTX_mosaic_25cm_v7_Merge_LERC_clip', bbox: [77.1575, 18.2371, 77.5115, 18.5206] },
+    pos: { sol: 1980, lat: 18.43687407, lon: 77.23205444, yaw: 154.3, dist_km: 45.13, elev_geoid: -1930 },
+    images: async sol => (await getJSON(RAW(sol, 24))).images
+      .map(i => ({ src: i.image_files.medium, full: i.image_files.full_res, title: i.title, date: i.date_taken_utc })),
+  },
+  curiosity: {
+    name: 'Curiosity', site: 'Gale Crater', dir: 'MSL',
+    hirise: { layer: 'MSL_Gale_HiRISE-LRGB_78quads', bbox: [137.3267, -4.8756, 137.4786, -4.5551] },
+    pos: { sol: 5021, lat: -4.82513971, lon: 137.3888471, yaw: 146.26, dist_km: 38.07, elev_geoid: -3480 },
+    images: async sol => (await getJSON(`https://mars.nasa.gov/api/v1/raw_image_items/?order=sol%20desc&condition_1=msl:mission&condition_2=${sol}:sol:in&per_page=60`)).items
+      .filter(i => !i.is_thumbnail).slice(0, 24).map(i => ({ src: i.https_url, full: i.https_url, title: i.title, date: i.date_taken })),
+  },
+};
+for (const m of Object.values(MISSIONS)) m.stops = [];
+const missionData = Promise.all(Object.values(MISSIONS).map(async m => {
+  try {
+    const base = `${MMGIS}${m.dir}/Layers/json/${m.dir}_waypoints`;
+    const [cur, all] = await Promise.all([getJSON(base + '_current.json'), getJSON(base + '.json')]);
+    m.pos = cur.features[0].properties;
+    m.stops = all.features.map(f => f.properties);
+    m.live = true;
+  } catch (e) { /* keep last known position */ }
+}));
+
+// ---- Renderer ----
+const renderer = new THREE.WebGLRenderer({ canvas: $('scene'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+let mode = 'globe';
+
+// ======================= ORBIT VIEW =======================
+const globeScene = new THREE.Scene();
+const globeCam = new THREE.PerspectiveCamera(40, 1, .001, 2000);
+const marsCanvas = document.createElement('canvas');
+marsCanvas.width = 4096; marsCanvas.height = 2048;
+const mctx = marsCanvas.getContext('2d');
+mctx.fillStyle = '#9c5a3c'; mctx.fillRect(0, 0, 4096, 2048);
+const marsTex = new THREE.CanvasTexture(marsCanvas);
+marsTex.colorSpace = THREE.SRGBColorSpace;
+marsTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+let marsDirty = false;
+// Viking colour mosaic from NASA Mars Trek: coarse level first for an instant planet, then sharp.
+(async () => {
+  for (const z of [1, 3]) {
+    const cols = 2 ** (z + 1), rows = 2 ** z, s = 4096 / cols;
+    await Promise.all(Array.from({ length: cols * rows }, (_, k) =>
+      loadImg(`https://trek.nasa.gov/tiles/Mars/EQ/Mars_Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm/${z}/${k / cols | 0}/${k % cols}.jpg`)
+        .then(img => { if (img) { mctx.drawImage(img, (k % cols) * s, (k / cols | 0) * s, s, s); marsDirty = true; } })));
+  }
+})();
+
+const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), new THREE.MeshStandardMaterial({ map: marsTex, roughness: 1, metalness: 0 }));
+globeScene.add(globe);
+const glowShader = (side, intensity) => new THREE.ShaderMaterial({
+  side, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+  fragmentShader: `varying vec3 vN; void main(){ float d = dot(vN, vec3(0., 0., 1.)); gl_FragColor = vec4(1., .52, .3, 1.) * (${intensity}); }`,
+});
+globeScene.add(new THREE.Mesh(new THREE.SphereGeometry(1.1, 64, 32), glowShader(THREE.BackSide, 'pow(max(.6 - d, 0.), 6.) * 1.2')));   // outer halo, brightest at the limb
+globe.add(new THREE.Mesh(new THREE.SphereGeometry(1.003, 64, 32), glowShader(THREE.FrontSide, 'pow(1. - max(d, 0.), 3.) * .6')));   // dusty limb
+
+const sunG = new THREE.DirectionalLight(0xfff4ea, 3.2);
+sunG.position.set(-5, 1.5, 3);
+globeScene.add(sunG, new THREE.AmbientLight(0xffffff, .06));
+
+// Starfield
+const starGeo = new THREE.BufferGeometry(), sp = [], sc = [];
+for (let i = 0; i < 6000; i++) {
+  const v = new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(800), b = rand(.3, 1);
+  sp.push(v.x, v.y, v.z); sc.push(b, b, b * rand(.85, 1));
+}
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+starGeo.setAttribute('color', new THREE.Float32BufferAttribute(sc, 3));
+globeScene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ size: 1.4, sizeAttenuation: false, vertexColors: true })));
+
+// Phobos, at its real orbital distance (2.76 Mars radii).
+const phobosGeo = new THREE.IcosahedronGeometry(.03, 2);
+const pp = phobosGeo.attributes.position;
+for (let i = 0; i < pp.count; i++) pp.setXYZ(i, pp.getX(i) * 1.3, pp.getY(i) * .9, pp.getZ(i) * (1 + Math.sin(i) * .08));
+phobosGeo.computeVertexNormals();
+const phobos = new THREE.Mesh(phobosGeo, new THREE.MeshStandardMaterial({ color: 0x6d625a, roughness: 1, flatShading: true }));
+globeScene.add(phobos);
+
+// Equirectangular lat/lon <-> point on the unit sphere (matches SphereGeometry UVs).
+const lonLatToVec = (lat, lon, r = 1) => {
+  const phi = (lon + 180) * D, th = (90 - lat) * D;
+  return new THREE.Vector3(-Math.cos(phi) * Math.sin(th), Math.cos(th), Math.sin(phi) * Math.sin(th)).multiplyScalar(r);
+};
+const vecToLonLat = v => { v = v.clone().normalize(); return { lat: Math.asin(v.y) / D, lon: ((Math.atan2(v.z, -v.x) / D - 180 + 540) % 360) - 180 }; };
+
+// Live rover pins
+const pins = Object.entries(MISSIONS).map(([key, m]) => {
+  const pin = new THREE.Mesh(new THREE.SphereGeometry(.011, 16, 8), new THREE.MeshBasicMaterial({ color: 0x5ff4ff }));
+  pin.userData = { key, label: Object.assign(document.createElement('div'), { className: 'label', textContent: m.name }) };
+  $('labels').append(pin.userData.label);
+  globe.add(pin);
+  return pin;
+});
+const placePins = () => pins.forEach(p => p.position.copy(lonLatToVec(MISSIONS[p.userData.key].pos.lat, MISSIONS[p.userData.key].pos.lon, 1.004)));
+placePins();
+missionData.then(placePins);
+const marker = new THREE.Mesh(new THREE.SphereGeometry(.009, 16, 8), new THREE.MeshBasicMaterial({ color: 0xff5a3d }));
+marker.visible = false;
+globe.add(marker);
+
+// Orbit state: globe.rotation = (pitch, yaw) keeps north up; a site faces the camera at yaw=-atan2(x,z), pitch=lat.
+let gYaw = -1.2, gPitch = .25, camDist = 12, camDistTarget = 3.4, spin = true, flying = null, landTarget = null;
+const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function globeHit(e) {
+  ndc.set(e.clientX / innerWidth * 2 - 1, -e.clientY / innerHeight * 2 + 1);
+  raycaster.setFromCamera(ndc, globeCam);
+  return raycaster.intersectObjects([...pins, globe], false)[0];
+}
+function choose(target, text) {
+  landTarget = target;
+  marker.position.copy(lonLatToVec(target.lat, target.lon, 1.004));
+  marker.visible = !target.mission;
+  $('pickText').textContent = text;
+  $('pick').hidden = false;
+  spin = false;
+}
+function chooseMission(key) {
+  const m = MISSIONS[key];
+  choose({ lat: m.pos.lat, lon: m.pos.lon, mission: key },
+    `${m.name} · ${m.site} · ${m.live ? 'live position' : 'last known position'}, sol ${m.pos.sol}`);
+}
+for (const b of document.querySelectorAll('#sites button')) b.onclick = () => { chooseMission(b.dataset.site); flyTo(landTarget); };
+$('landBtn').onclick = () => flyTo(landTarget);
+function flyTo(t) {
+  if (flying) return;
+  $('pick').hidden = true;
+  const p = lonLatToVec(t.lat, t.lon), yaw = -Math.atan2(p.x, p.z);
+  const dYaw = ((yaw - gYaw) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+  flying = { t: 0, from: [gYaw, gPitch, camDist], to: [gYaw + dYaw, t.lat * D, 1.06], target: t };
+}
+
+function updateGlobe(dt, now) {
+  if (marsDirty) { marsTex.needsUpdate = true; marsDirty = false; }
+  if (flying) {
+    flying.t = Math.min(1, flying.t + dt / 3.4);
+    const k = flying.t < .5 ? 4 * flying.t ** 3 : 1 - (-2 * flying.t + 2) ** 3 / 2;
+    [gYaw, gPitch, camDist] = flying.from.map((f, i) => f + (flying.to[i] - f) * k);
+    if (flying.t === 1 && !flying.landing) { flying.landing = true; land(flying.target); }
+  } else {
+    if (spin && !drag) gYaw += dt * .05;
+    camDist += (camDistTarget - camDist) * Math.min(dt * 1.4, 1);
+  }
+  globe.rotation.set(gPitch, gYaw, 0);
+  // Entry: over the last part of the dive the view widens, tilts up toward the horizon,
+  // shakes a little and glows with atmosphere, ending in the dust-coloured screen the surface fades in from.
+  const entry = flying ? Math.min(Math.max((flying.t - .55) / .45, 0), 1) ** 2 : 0;
+  globeCam.fov = 40 + entry * 30;
+  globeCam.updateProjectionMatrix();
+  const shake = entry * (1 - entry) * .004;
+  globeCam.position.set(Math.sin(now * .05) * shake, Math.cos(now * .043) * shake, camDist);
+  globeCam.lookAt(0, entry * .9, 0);
+  if (flying && !flying.landing) { $('fade').style.transition = 'none'; $('fade').textContent = ''; $('fade').style.opacity = entry; }
+  const a = now * .00012;
+  phobos.position.set(Math.cos(a) * 2.76, Math.sin(a) * .25, Math.sin(a) * 2.76);
+  phobos.rotation.y = -a;
+
+  const s = 1 + Math.sin(now * .005) * .35, w = new THREE.Vector3();
+  if (flying) marker.visible = false;
+  for (const p of pins) {
+    p.visible = !flying;
+    p.scale.setScalar(s);
+    p.getWorldPosition(w);
+    const facing = w.clone().normalize().dot(globeCam.position.clone().normalize()) > .2, l = p.userData.label;
+    l.hidden = !facing || !!flying;
+    if (facing) { w.project(globeCam); l.style.left = (w.x + 1) / 2 * innerWidth + 'px'; l.style.top = (1 - w.y) / 2 * innerHeight + 'px'; }
+  }
+}
+
+// ======================= SURFACE VIEW =======================
+const surfCam = new THREE.PerspectiveCamera(55, 1, .1, 6000);
+const rover = new THREE.Group();
+rover.rotation.order = 'YXZ';
+const modelReady = new Promise(done => new GLTFLoader().load('models/perseverance.glb', g => {
+  g.scene.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+  rover.add(g.scene);
+  done();
+}, undefined, () => { rover.add(new THREE.Mesh(new THREE.BoxGeometry(2.7, 1.5, 3), new THREE.MeshStandardMaterial({ color: 0xdddddd }))); done(); }));
+
+const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+function vnoise(x, y, p = 0) {
+  const xi = Math.floor(x), yi = Math.floor(y), u = (x - xi) ** 2 * (3 - 2 * (x - xi)), v = (y - yi) ** 2 * (3 - 2 * (y - yi));
+  const g = p ? (i, j) => hash(((i % p) + p) % p, ((j % p) + p) % p) : hash;   // p > 0: tileable
+  const a = g(xi, yi), b = g(xi + 1, yi), c = g(xi, yi + 1), d = g(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+// ponytail: relief is fBm noise; no CORS-readable Mars DEM tiles found. Swap in a DEM here if one appears.
+function fbm(x, z) {
+  let y = 0, amp = 4, f = 1 / 180;
+  for (let i = 0; i < 6; i++, amp *= .45, f *= 2.1) y += (vnoise(x * f, z * f) - .5) * amp;
+  return y;
+}
+
+// Tileable grain normal map for close-up ground texture (built once).
+const grainTex = (() => {
+  const size = 512, hm = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let s = 0, amp = 1;
+    for (let o = 0, p = 16; o < 5; o++, p *= 2, amp *= .5) s += vnoise(x / size * p, y / size * p, p) * amp;
+    hm[y * size + x] = s;
+  }
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(size, size), at = (x, y) => hm[((y + size) % size) * size + (x + size) % size];
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (at(x + 1, y) - at(x - 1, y)) * 6, dy = (at(x, y + 1) - at(x, y - 1)) * 6, l = Math.hypot(dx, dy, 1);
+    img.data.set([(-dx / l * .5 + .5) * 255, (-dy / l * .5 + .5) * 255, (1 / l * .5 + .5) * 255, 255], (y * size + x) * 4);
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
+
+// Ground imagery: HiRISE colour near the rovers, global CTX mosaic everywhere else.
+function hiriseSource(m, lat, lon) {
+  const Z = 17, G = 8, T = 256, N = T * 2 ** Z;
+  const merc = (la, lo) => [(lo + 180) / 360 * N, (1 - Math.asinh(Math.tan(la * D)) / Math.PI) / 2 * N];
+  const [px, py] = merc(lat, lon), tx0 = Math.floor(px / T) - G / 2, ty0 = Math.floor(py / T) - G / 2;
+  const mpp = 2 * Math.PI * R * Math.cos(lat * D) / N, tiles = [];
+  for (let i = 0; i < G; i++) for (let j = 0; j < G; j++)
+    tiles.push({ url: `${MMGIS}${m.dir}/Layers/${m.hirise.layer}/${Z}/${tx0 + i}/${2 ** Z - 1 - (ty0 + j)}.png`, x: i * T, y: j * T, s: T });
+  return { PX: G * T, mx: mpp, mz: mpp, tiles, colorize: false,
+    toPx: (la, lo) => { const [a, b] = merc(la, lo); return [a - tx0 * T, b - ty0 * T]; },
+    credit: 'Ground: real HiRISE colour imagery from orbit (NASA/JPL/Univ. of Arizona), ~60 cm/pixel. Relief simulated.' };
+}
+function ctxSource(lat, lon) {
+  const L = 12, T = 512, G = 3, res = 180 / (T * 2 ** L), cols = 2 ** (L + 1), rows = 2 ** L;
+  const col = Math.floor((lon + 180) / (T * res)) - 1, row = Math.floor((90 - lat) / (T * res)) - 1, mz = res * D * R, tiles = [];
+  for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
+    if (row + j < 0 || row + j >= rows) continue;
+    tiles.push({ url: `https://astro.arcgis.com/arcgis/rest/services/OnMars/CTX/MapServer/tile/${L}/${row + j}/${((col + i) % cols + cols) % cols}`, x: i * T, y: j * T, s: T });
+  }
+  return { PX: G * T, mx: mz * Math.cos(lat * D), mz, tiles, colorize: true,
+    toPx: (la, lo) => [(lo + 180) / res - col * T, (90 - la) / res - row * T],
+    credit: 'Ground: real MRO Context Camera mosaic (NASA/JPL/MSSS, Caltech Murray Lab), ~5 m/pixel, tinted. Relief simulated.' };
+}
+function imagery(lat, lon) {
+  for (const m of Object.values(MISSIONS)) {
+    const [w, s, e, n] = m.hirise.bbox, k = .012;
+    if (lon > w + k && lon < e - k && lat > s + k && lat < n - k) return hiriseSource(m, lat, lon);
+  }
+  return ctxSource(lat, lon);
+}
+
+function buildSurface(t) {
+  const src = imagery(t.lat, t.lon);
+  const Wx = src.PX * src.mx, Wz = src.PX * src.mz, HX = Wx / 2 - 5, HZ = Wz / 2 - 5;
+  const toWorld = (la, lo) => { const [px, py] = src.toPx(la, lo); return [(px - src.PX / 2) * src.mx, (py - src.PX / 2) * src.mz]; };
+  const ox = (t.lon * 7919) % 5000, oz = (t.lat * 7919) % 5000, h = (x, z) => fbm(x + ox, z + oz);
+  const [sx0, sz0] = toWorld(t.lat, t.lon);
+
+  const scene = new THREE.Scene();
+  const HORIZON = new THREE.Color(0xdcab84), ZENITH = new THREE.Color(0x8a5a40);
+  scene.fog = new THREE.Fog(HORIZON, 120, 1100);
+  const sunDir = new THREE.Vector3(.5, .55, -.4).normalize();
+  const sun = new THREE.DirectionalLight(0xffe8d0, 2.6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, near: 1, far: 300 });
+  sun.shadow.bias = -.0004; sun.shadow.normalBias = .03;
+  scene.add(sun, sun.target, new THREE.HemisphereLight(0xe2b898, 0x5c3626, .9));
+
+  // Mars sky: butterscotch dome with the bluish glow Mars has around the sun.
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(5000, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { sunDir: { value: sunDir }, horizon: { value: HORIZON }, zenith: { value: ZENITH } },
+    vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: `uniform vec3 sunDir, horizon, zenith; varying vec3 vDir;
+      void main(){ vec3 d = normalize(vDir); float s = max(dot(d, sunDir), 0.);
+        vec3 c = mix(horizon, zenith, pow(max(d.y, 0.), .55));
+        c += vec3(.35,.5,.75) * pow(s, 30.) * .5 + vec3(1.) * pow(s, 3000.) * 4.;
+        gl_FragColor = vec4(c, 1.);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  }));
+  scene.add(sky);
+
+  // Ground texture from real orbital tiles.
+  const orbital = document.createElement('canvas');
+  orbital.width = orbital.height = src.PX;
+  const octx = orbital.getContext('2d');
+  octx.fillStyle = '#b8876a'; octx.fillRect(0, 0, src.PX, src.PX);
+  const groundTex = new THREE.CanvasTexture(orbital);
+  groundTex.colorSpace = THREE.SRGBColorSpace;
+  groundTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  let texDirty = true;
+  for (const tile of src.tiles) loadImg(tile.url).then(img => {
+    if (!img) return;
+    octx.drawImage(img, tile.x, tile.y, tile.s, tile.s);
+    if (src.colorize) {   // CTX is panchromatic: keep its luminance, take hue from Mars dust.
+      octx.globalCompositeOperation = 'color';
+      octx.fillStyle = '#c47a4e'; octx.fillRect(tile.x, tile.y, tile.s, tile.s);
+      octx.globalCompositeOperation = 'source-over';
+    }
+    texDirty = true;
+  });
+  const geo = new THREE.PlaneGeometry(Wx, Wz, 384, 384);
+  geo.rotateX(-Math.PI / 2);
+  const gp = geo.attributes.position;
+  for (let i = 0; i < gp.count; i++) gp.setY(i, h(gp.getX(i), gp.getZ(i)));
+  geo.computeVertexNormals();
+  const grain = grainTex.clone();
+  grain.repeat.set(Wx / 5, Wz / 5);
+  const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: groundTex, normalMap: grain, roughness: 1, metalness: 0 }));
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // Rocks: dense around the landing point, sparse elsewhere.
+  const rockGeo = new THREE.IcosahedronGeometry(1, 2), rp = rockGeo.attributes.position;
+  for (let i = 0; i < rp.count; i++) {
+    const x = rp.getX(i), y = rp.getY(i), z = rp.getZ(i), k = .75 + vnoise(x * 2 + 9, y * 2 + z * 2) * .5;
+    rp.setXYZ(i, x * k, y * k * .7, z * k);
+  }
+  rockGeo.computeVertexNormals();
+  const ROCKS = 7000, rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ roughness: .95, flatShading: true }), ROCKS);
+  rocks.castShadow = rocks.receiveShadow = true;
+  const m = new THREE.Object3D(), col = new THREE.Color();
+  for (let i = 0; i < ROCKS; i++) {
+    const near = i < 4000, r = near ? Math.sqrt(Math.random()) * 160 : Math.random() * Math.max(Wx, Wz) * .5, a = Math.random() * Math.PI * 2;
+    const x = Math.max(-HX, Math.min(HX, (near ? sx0 : 0) + Math.cos(a) * r)), z = Math.max(-HZ, Math.min(HZ, (near ? sz0 : 0) + Math.sin(a) * r));
+    const s = .06 + Math.random() ** 5 * 1.1;
+    m.position.set(x, h(x, z) - s * .25, z);
+    m.scale.set(s * rand(.7, 1.4), s, s * rand(.7, 1.4));
+    m.rotation.set(rand(-.3, .3), rand(0, 6.3), rand(-.3, .3));
+    m.updateMatrix();
+    rocks.setMatrixAt(i, m.matrix);
+    rocks.setColorAt(i, col.setHSL(rand(.04, .07), rand(.25, .4), rand(.22, .38)));
+  }
+  scene.add(rocks);
+
+  // Wind-blown dust.
+  const DUST = 1500, BOX = 80, dustGeo = new THREE.BufferGeometry(), dp = new Float32Array(DUST * 3).map(() => rand(-BOX / 2, BOX / 2));
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xd9b18f, size: .05, transparent: true, opacity: .55, depthWrite: false }));
+  dust.frustumCulled = false;
+  scene.add(dust);
+
+  // Beacons: real past stops of either rover inside this area.
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: .3, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  const beacons = [];
+  const paths = [];
+  for (const [key, mis] of Object.entries(MISSIONS)) {
+    const bySol = new Map(), path = [];
+    for (const s of mis.stops) {
+      const [x, z] = toWorld(s.lat, s.lon);
+      if (Math.abs(x) < HX && Math.abs(z) < HZ) { bySol.set(s.sol, [x, z]); path.push([x, z]); } else if (path.length) path.push(null);
+    }
+    paths.push(path);
+    for (const [sol, [x, z]] of bySol) {
+      if (Math.hypot(x - sx0, z - sz0) < 15 || Math.abs(x) > HX - 5 || Math.abs(z) > HZ - 5) continue;
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(.35, .35, 30, 12, 1, true), beamMat.clone());
+      mesh.position.set(x, h(x, z) + 15, z);
+      scene.add(mesh);
+      beacons.push({ x, z, sol, mission: key, mesh, found: false });
+    }
+  }
+  // Scroll route: newest stop first, so the rover retraces its real drive back in time. The rover
+  // often sat in one spot for several sols, so stops on top of the previous one are merged and every
+  // scroll actually drives somewhere.
+  beacons.sort((a, b) => b.sol - a.sol);
+  const stops = [];
+  for (const b of beacons) if (!stops.length || Math.hypot(b.x - stops.at(-1).x, b.z - stops.at(-1).z) >= 6) stops.push(b);
+  let route = -1, goal = null;
+  function step(dir) {
+    if (!stops.length) return;
+    route = Math.max(0, Math.min(stops.length - 1, route + dir));
+    goal = stops[route];
+  }
+
+  // HUD
+  const mis = t.mission && MISSIONS[t.mission];
+  $('sTitle').textContent = mis ? `${mis.name} · ${mis.site}, Mars` : `Landing site ${fmt(t.lat, t.lon)}`;
+  $('where').textContent = mis
+    ? `${mis.live ? 'Real position today' : 'Last known position'}, sol ${mis.pos.sol}: ${fmt(mis.pos.lat, mis.pos.lon)} · ${Math.round(mis.pos.elev_geoid)} m elevation · ${mis.pos.dist_km} km driven`
+    : `${fmt(t.lat, t.lon)} · Rover model: Perseverance`;
+  $('credit').textContent = src.credit;
+  $('total').textContent = beacons.length;
+  $('count').textContent = 0;
+  $('stopsLine').hidden = !beacons.length;
+
+  // Minimap
+  const MS = 180, mapBg = document.createElement('canvas'), map = $('map').getContext('2d');
+  mapBg.width = mapBg.height = MS;
+  const toMap = (x, z) => [(x / Wx + .5) * MS, (z / Wz + .5) * MS];
+  function drawMapBg() {
+    const g = mapBg.getContext('2d');
+    g.drawImage(orbital, 0, 0, MS, MS);
+    g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 1.2;
+    for (const path of paths) {
+      g.beginPath();
+      for (const p of path) p ? g.lineTo(...toMap(...p)) : (g.stroke(), g.beginPath());
+      g.stroke();
+    }
+  }
+
+  // Rover placement
+  scene.add(rover);
+  rover.position.set(sx0, h(sx0, sz0), sz0);
+  let heading = mis ? Math.PI - mis.pos.yaw * D : Math.PI, speed = 0, age = 0;
+  surfCam.position.set(sx0 + 40, rover.position.y + 260, sz0 + 140);   // start high in the sky: descent shot
+  const camTarget = new THREE.Vector3();
+
+  async function visit(b) {
+    b.found = true;
+    b.mesh.material.color.set(0x666666);
+    $('count').textContent = beacons.filter(x => x.found).length;
+    const bm = MISSIONS[b.mission];
+    $('ptitle').textContent = `Sol ${b.sol}: ${bm.name} stopped here`;
+    $('pmeta').textContent = 'Downloading what it saw…';
+    $('pgrid').replaceChildren();
+    $('panel').style.display = 'block';
+    try {
+      const imgs = await bm.images(b.sol);
+      $('pmeta').textContent = imgs.length
+        ? `Raw images ${bm.name} took on sol ${b.sol} (${imgs[0].date.slice(0, 10)}). Click for full resolution.`
+        : 'No full-frame images were published for this sol.';
+      for (const i of imgs) {
+        const a = Object.assign(document.createElement('a'), { href: i.full, target: '_blank', rel: 'noopener' });
+        a.append(Object.assign(document.createElement('img'), { src: i.src, alt: i.title, title: i.title, loading: 'lazy' }));
+        $('pgrid').append(a);
+      }
+    } catch (e) { $('pmeta').textContent = 'Could not reach NASA: ' + e.message; }
+  }
+
+  function update(dt, now) {
+    age += dt;
+    if (texDirty) { groundTex.needsUpdate = true; drawMapBg(); texDirty = false; }
+    let want = (keys.f ? 8 : 0) - (keys.b ? 4 : 0), turn = (keys.l ? 1 : 0) - (keys.r ? 1 : 0);
+    if (want || turn) goal = null;   // taking the wheel cancels the autopilot
+    if (goal) {
+      // Autopilot: steer toward the stop (turning on the spot if needed), ease off on arrival.
+      const dx = goal.x - rover.position.x, dz = goal.z - rover.position.z, d = Math.hypot(dx, dz);
+      const err = Math.atan2(Math.sin(Math.atan2(dx, dz) - heading), Math.cos(Math.atan2(dx, dz) - heading));
+      turn = Math.max(-1, Math.min(1, err * 2)) * 1.6;
+      want = Math.min(16, d * 1.2) * Math.max(0, Math.cos(err));
+      if (d < 2) goal = null;
+    }
+    speed += (want - speed) * Math.min(dt * 2, 1);
+    if (goal || Math.abs(speed) > .2) heading += turn * 1.1 * dt * (goal ? 1 : Math.sign(speed));
+    const sx = Math.sin(heading), cz = Math.cos(heading);
+    rover.position.x = Math.max(-HX, Math.min(HX, rover.position.x + sx * speed * dt));
+    rover.position.z = Math.max(-HZ, Math.min(HZ, rover.position.z + cz * speed * dt));
+    const { x, z } = rover.position;
+    // Rest the chassis on the ground under its wheels.
+    const f = h(x + sx * 1.3, z + cz * 1.3), bk = h(x - sx * 1.3, z - cz * 1.3);
+    const rt = h(x - cz * 1.1, z + sx * 1.1), lt = h(x + cz * 1.1, z - sx * 1.1);
+    rover.position.y = (f + bk + rt + lt) / 4;
+    rover.rotation.set(-Math.atan2(f - bk, 2.6), heading, Math.atan2(lt - rt, 2.2));
+
+    const a = heading + Math.PI + camYaw;
+    camTarget.set(x + Math.sin(a) * Math.cos(camPitch) * camDistS, rover.position.y + 1.2 + Math.sin(camPitch) * camDistS, z + Math.cos(a) * Math.cos(camPitch) * camDistS);
+    surfCam.position.lerp(camTarget, Math.min(dt * (age < 4.5 ? .4 + age * .45 : 5), 1));   // slow drift down, then normal follow
+    surfCam.position.y = Math.max(surfCam.position.y, h(surfCam.position.x, surfCam.position.z) + .8);
+    surfCam.lookAt(x, rover.position.y + 1.3, z);
+    sky.position.copy(surfCam.position);
+    sun.target.position.copy(rover.position);
+    sun.position.copy(rover.position).addScaledVector(sunDir, 120);
+
+    const cp = surfCam.position;
+    for (let i = 0; i < DUST * 3; i += 3) {
+      dp[i] += (1.2 + Math.sin(now * .0003 + i)) * dt; dp[i + 1] += Math.sin(now * .001 + i) * .05 * dt; dp[i + 2] += .4 * dt;
+      for (let k = 0; k < 3; k++) dp[i + k] = ((dp[i + k] - cp.getComponent(k) + BOX * 1.5) % BOX) + cp.getComponent(k) - BOX / 2;
+    }
+    dustGeo.attributes.position.needsUpdate = true;
+
+    let near = null, nearD = Infinity;
+    for (const b of beacons) {
+      const d = Math.hypot(b.x - x, b.z - z);
+      if (!b.found && d < 4) visit(b);
+      if (!b.found && d < nearD) near = b, nearD = d;
+      b.mesh.material.opacity = b === goal ? .85 : .3;
+    }
+    $('toast').textContent = goal ? `Driving to stop ${route + 1}/${stops.length}: ${MISSIONS[goal.mission].name}, sol ${goal.sol} · ${Math.round(Math.hypot(goal.x - x, goal.z - z))} m`
+      : !stops.length ? 'Uncharted ground: no rover has been here'
+      : route === stops.length - 1 ? 'Last stop reached · scroll up to drive back'
+      : route >= 0 ? `At stop ${route + 1}/${stops.length} · scroll for the next one`
+      : near ? `Scroll to drive to the first real stop · nearest: ${MISSIONS[near.mission].name}, sol ${near.sol}, ${Math.round(nearD)} m` : 'All stops visited!';
+
+    map.drawImage(mapBg, 0, 0);
+    for (const b of beacons) { map.fillStyle = b.found ? '#777' : '#ffc070'; map.beginPath(); map.arc(...toMap(b.x, b.z), 3, 0, 7); map.fill(); }
+    map.save();
+    map.translate(...toMap(x, z));
+    map.rotate(-heading);
+    map.fillStyle = '#ff5a3d'; map.strokeStyle = '#fff';
+    map.beginPath(); map.moveTo(0, 8); map.lineTo(-5, -5); map.lineTo(5, -5); map.closePath(); map.fill(); map.stroke();
+    map.restore();
+  }
+
+  function dispose() {
+    scene.remove(rover);
+    scene.traverse(o => {
+      o.geometry?.dispose();
+      for (const mat of [].concat(o.material || [])) { for (const v of Object.values(mat)) if (v?.isTexture) v.dispose(); mat.dispose(); }
+    });
+  }
+  return { scene, update, dispose, step };
+}
+
+// ======================= MODE SWITCHING =======================
+let S = null;
+const fade = (o, text = '', secs = .8) => { $('fade').style.transition = `opacity ${secs}s`; $('fade').textContent = text; $('fade').style.opacity = o; };
+async function land(t) {
+  fade(1, `Landing at ${fmt(t.lat, t.lon)}…`, .3);   // screen is already dust-covered from the dive
+  await Promise.all([sleep(500), modelReady, missionData]);
+  S?.dispose();
+  S = buildSurface(t);
+  mode = 'surface';
+  document.body.classList.add('surface');
+  $('globeUI').hidden = true;
+  $('surfaceUI').hidden = false;
+  camYaw = 0;
+  fade(0, '', 1.8);
+}
+async function toOrbit() {
+  fade(1, 'Returning to orbit…');
+  await sleep(800);
+  mode = 'globe';
+  document.body.classList.remove('surface');
+  $('globeUI').hidden = false;
+  $('surfaceUI').hidden = true;
+  flying = null;
+  spin = true;
+  marker.visible = false;
+  camDist = 1.15; camDistTarget = 3.4;
+  fade(0, '', 1.2);
+}
+$('orbitBtn').onclick = toOrbit;
+
+// ======================= INPUT =======================
+const keys = {};
+const KEYMAP = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
+addEventListener('keydown', e => {
+  if (KEYMAP[e.code] && mode === 'surface') { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
+  if (e.code === 'Escape') { for (const s of document.querySelectorAll('.sheet')) s.style.display = 'none'; $('pick').hidden = true; marker.visible = false; spin = true; }
+});
+addEventListener('keyup', e => { if (KEYMAP[e.code]) keys[KEYMAP[e.code]] = false; });
+for (const b of document.querySelectorAll('#pad button')) {
+  b.onpointerdown = () => keys[b.dataset.k] = true;
+  b.onpointerup = b.onpointerleave = b.onpointercancel = () => keys[b.dataset.k] = false;
+}
+let drag = null, moved = 0, camYaw = 0, camPitch = .35, camDistS = 9;
+$('scene').onpointerdown = e => { drag = [e.clientX, e.clientY]; moved = 0; };
+addEventListener('pointerup', e => {
+  if (drag && mode === 'globe' && moved < 6 && !flying) {
+    const hit = globeHit(e);
+    if (hit?.object.userData.key) chooseMission(hit.object.userData.key);
+    else if (hit) { const { lat, lon } = vecToLonLat(globe.worldToLocal(hit.point.clone())); choose({ lat, lon }, `Landing site ${fmt(lat, lon)}`); }
+  }
+  drag = null;
+});
+addEventListener('pointermove', e => {
+  if (mode === 'globe' && !flying) {
+    const hit = !drag && e.target === $('scene') && globeHit(e);
+    $('coords').hidden = !hit;
+    if (hit) {
+      const { lat, lon } = vecToLonLat(globe.worldToLocal(hit.point.clone()));
+      Object.assign($('coords').style, { left: e.clientX + 14 + 'px', top: e.clientY + 14 + 'px' });
+      $('coords').textContent = hit.object.userData.key ? `${MISSIONS[hit.object.userData.key].name}: click to land` : fmt(lat, lon);
+    }
+  }
+  if (!drag) return;
+  const dx = e.clientX - drag[0], dy = e.clientY - drag[1];
+  moved += Math.abs(dx) + Math.abs(dy);
+  drag = [e.clientX, e.clientY];
+  if (mode === 'globe') {
+    const k = .004 * (camDist - 1) / 2.4;
+    gYaw += dx * k;
+    gPitch = Math.max(-1.4, Math.min(1.4, gPitch + dy * k));
+  } else {
+    camYaw -= dx * .006;
+    camPitch = Math.max(.05, Math.min(1.3, camPitch + dy * .004));
+  }
+});
+// On the surface a scroll gesture is one step along the route; pinch (ctrl+wheel) zooms.
+// The cooldown swallows trackpad momentum so one flick moves one stop.
+let wheelAcc = 0, wheelAt = 0;
+$('scene').addEventListener('wheel', e => {
+  e.preventDefault();
+  if (mode === 'globe') camDistTarget = Math.max(1.4, Math.min(8, camDistTarget * (1 + e.deltaY * .001)));
+  else if (e.ctrlKey) camDistS = Math.max(4, Math.min(60, camDistS * (1 + e.deltaY * .01)));
+  else if (performance.now() - wheelAt < 700) wheelAt = performance.now();
+  else if (Math.abs(wheelAcc += e.deltaY) > 40) { S.step(Math.sign(wheelAcc)); wheelAcc = 0; wheelAt = performance.now(); }
+}, { passive: false });
+
+// ======================= LIVE FEED =======================
+const ago = d => { const m = (Date.now() - new Date(d)) / 6e4; return m < 60 ? `${m | 0} min ago` : m < 1440 ? `${m / 60 | 0} h ago` : `${m / 1440 | 0} d ago`; };
+async function refreshLive() {
+  try {
+    const [p, c] = await Promise.all([getJSON(RAW(null, 15)),
+      getJSON('https://mars.nasa.gov/api/v1/raw_image_items/?order=sol%20desc&condition_1=msl:mission&per_page=25&page=0')]);
+    const items = [
+      ...p.images.map(i => ({ rover: 'Perseverance', src: i.image_files.small, full: i.image_files.full_res, cam: i.camera.instrument, sol: i.sol, rec: i.date_received })),
+      ...c.items.filter(i => !i.is_thumbnail).map(i => ({ rover: 'Curiosity', src: i.https_url, full: i.https_url, cam: i.instrument, sol: i.sol, rec: i.date_received })),
+    ].sort((a, b) => new Date(b.rec) - new Date(a.rec));
+    $('lfeed').replaceChildren(...items.map(i => {
+      const a = Object.assign(document.createElement('a'), { href: i.full, target: '_blank', rel: 'noopener' });
+      a.innerHTML = '<img loading="lazy" alt=""><span><b></b><small></small><small></small></span>';
+      a.querySelector('img').src = i.src;
+      a.querySelector('b').textContent = i.rover;
+      const [s1, s2] = a.querySelectorAll('small');
+      s1.textContent = `${i.cam.replace(/_/g, ' ')} · sol ${i.sol}`;
+      s2.textContent = `received ${ago(i.rec)}`;
+      return a;
+    }));
+    $('lmeta').textContent = `Newest raw images downlinked from Perseverance and Curiosity. Updated ${new Date().toLocaleTimeString()}; refreshes every 5 minutes.`;
+  } catch (e) { $('lmeta').textContent = 'Live feed unavailable: ' + e.message; }
+}
+setInterval(() => { if ($('live').style.display === 'block') refreshLive(); }, 5 * 60e3);
+$('liveBtn').onclick = () => { $('live').style.display = 'block'; refreshLive(); };
+for (const b of document.querySelectorAll('.close')) b.onclick = () => b.parentElement.style.display = 'none';
+
+// ======================= LOOP =======================
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, .05);
+  last = now;
+  if (mode === 'globe') { updateGlobe(dt, now); renderer.render(globeScene, globeCam); }
+  else { S.update(dt, now); renderer.render(S.scene, surfCam); }
+  requestAnimationFrame(frame);
+}
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  for (const c of [globeCam, surfCam]) { c.aspect = innerWidth / innerHeight; c.updateProjectionMatrix(); }
+}
+addEventListener('resize', resize);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

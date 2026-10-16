@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Space Station Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#000; font:15px/1.55 system-ui, sans-serif; color:#fff; }
+  canvas#scene { position:fixed; inset:0; display:block; }
+  a { color:#9fdcff; }
+  .hud { position:fixed; background:rgba(8,12,20,.7); backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:10px 14px; z-index:2; }
+  #top { top:12px; left:12px; }
+  #top a { text-decoration:none; font-size:.85rem; }
+  #live { top:12px; right:12px; font-size:.8rem; max-width:min(300px, calc(100% - 160px)); }
+  #live b::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; background:#ff3d3d; margin-right:6px; animation:pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity:.2; } }
+  #dots { position:fixed; right:14px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:10px; z-index:2; }
+  #dots button { width:10px; height:10px; padding:0; border-radius:50%; border:1px solid #9fdcff; background:transparent; cursor:pointer; }
+  #dots button.on { background:#9fdcff; box-shadow:0 0 10px #9fdcff; }
+  main { position:relative; z-index:1; }
+  section { height:100vh; display:flex; align-items:center; padding:0 48px; box-sizing:border-box; pointer-events:none; }
+  section:nth-child(even) { justify-content:flex-end; }
+  .card { pointer-events:auto; max-width:400px; background:rgba(8,12,20,.72); backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,.12);
+    border-radius:14px; padding:20px 22px; opacity:.25; transform:translateY(20px); transition:opacity .5s, transform .5s; }
+  section.on .card { opacity:1; transform:none; }
+  .kicker { margin:0; font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:#9fdcff; }
+  h2 { margin:6px 0 8px; font:700 1.35rem/1.2 'Syncopate', system-ui, sans-serif; letter-spacing:.04em; }
+  section:first-child h2 { font-size:clamp(1.3rem, 2.6vw, 1.9rem); }
+  .card p { margin:0 0 10px; color:#d6dde8; font-size:.92rem; }
+  .facts { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; margin:0; font-size:.82rem; }
+  .facts dt { color:#8a96a8; } .facts dd { margin:0; }
+  #loading { position:fixed; inset:0; z-index:5; display:grid; place-content:center; text-align:center; background:#000; transition:opacity .8s; }
+  #loading p { color:#8a96a8; }
+  @media (max-width:700px) {
+    section, section:nth-child(even) { align-items:flex-end; justify-content:center; padding:0 12px 24px; }
+    #dots { display:none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="loading"><h2>Docking…</h2><p id="lstatus">Loading NASA's ISS 3D model</p></div>
+<div id="top" class="hud"><a href="index.html">← Back to Mars</a> · <a href="mission.html">Mission Control</a></div>
+<div id="live" class="hud" role="status"><b>LIVE</b> <span id="liveText">Locating the ISS…</span></div>
+<nav id="dots" aria-label="Station parts"></nav>
+<main id="chapters"></main>
+
+<script src="music.js" defer></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const $ = id => document.getElementById(id);
+const D = Math.PI / 180;
+
+// Each chapter frames one part of NASA's ISS model (node names come from the model).
+// deep: frame the node with its children; otherwise only its own mesh (some nodes parent the modules attached to them).
+const CHAPTERS = [
+  { dir: [1, .45, 1.25], name: 'International Space Station', kicker: 'Scroll to explore',
+    text: 'A football-field-sized laboratory orbiting about 400 km above Earth, built by five space agencies (NASA, Roscosmos, ESA, JAXA and CSA) and crewed without a break since November 2000.',
+    facts: { Span: 'about 109 m', Mass: 'about 420,000 kg', Speed: 'about 28,000 km/h', Orbit: 'every ~90 minutes, ~16 a day' } },
+  { dir: [-1, -.3, .25], node: '01 Zarya - (FGB) Funtional Cargo Block', name: 'Zarya', kicker: 'Module 1 · Russia / USA · 1998',
+    text: 'The first piece of the station, launched on 20 November 1998. Zarya ("Sunrise") supplied early power, storage and propulsion; today it is mostly used for storage.',
+    facts: { Launched: '20 Nov 1998', Builder: 'Russia, funded by NASA' } },
+  { dir: [.6, 1, .55], far: 2.8, node: '02 Unity Node 1', name: 'Unity', kicker: 'Node 1 · USA · 1998',
+    text: 'The first US-built module, carried up by Space Shuttle Endeavour (STS-88) in December 1998. Unity connects the US and Russian segments; its six berthing ports join other modules together.',
+    facts: { Launched: '4 Dec 1998', Ports: '6 berthing ports' } },
+  { dir: [.35, .2, -1], node: '05 Zvezda (SM) Service Module', name: 'Zvezda', kicker: 'Service Module · Russia · 2000',
+    text: 'The structural and functional centre of the Russian segment. Zvezda ("Star") provided the first crew living quarters, life support and the engines used to boost the station\'s orbit.',
+    facts: { Launched: '12 Jul 2000', Role: 'Living quarters, life support, propulsion' } },
+  { dir: [1, .1, .15], node: '09 Destiny Space Laboratory', name: 'Destiny', kicker: 'US Laboratory · 2001',
+    text: 'NASA\'s main research laboratory, delivered by Atlantis (STS-98) in February 2001. Destiny hosts experiment racks for biology, physics, materials science and Earth observation, including a large optical-quality window.',
+    facts: { Launched: '7 Feb 2001', Role: 'Primary US science lab' } },
+  { dir: [-.6, .8, .6], node: '11 Canadarm2', deep: true, name: 'Canadarm2', kicker: 'Robotics · Canada · 2001',
+    text: 'A 17.6 m robotic arm built by the Canadian Space Agency. It can move end over end between fixtures like an inchworm, catches visiting cargo ships, and moves astronauts and hardware during spacewalks.',
+    facts: { Installed: 'April 2001 (STS-100)', Length: '17.6 m' } },
+  { dir: [-1, .35, -.35], node: '12 Quest Airlock', name: 'Quest Airlock', kicker: 'Airlock · USA · 2001',
+    text: 'The Quest Joint Airlock is the door to space for spacewalks from the US segment. Crews prepare their suits here and depressurise before stepping outside.',
+    facts: { Installed: 'July 2001 (STS-104)', Role: 'Spacewalk airlock' } },
+  { dir: [.3, .45, 1], node: '26 Harmony Node 2', name: 'Harmony', kicker: 'Node 2 · USA · 2007',
+    text: 'The hub that links Destiny with the European and Japanese labs. Docking adapters on Harmony are where commercial crew spacecraft arrive.',
+    facts: { Installed: 'October 2007 (STS-120)', Connects: 'Destiny, Columbus, Kibo' } },
+  { dir: [-1, .2, .7], node: '27 Columbus Space Laboratory', deep: true, name: 'Columbus', kicker: 'European Laboratory · ESA · 2008',
+    text: 'The European Space Agency\'s research module, used for experiments in fluid physics, materials, biology and human physiology, with platforms outside for space-exposure experiments.',
+    facts: { Installed: 'February 2008 (STS-122)', Builder: 'ESA' } },
+  { dir: [1, .3, .6], node: '30 Kibo Space Laboratory (PSM) Pressurized Module', deep: true, name: 'Kibo', kicker: 'Japanese Laboratory · JAXA · 2008',
+    text: 'Japan\'s laboratory, the largest single module on the station. Kibo ("Hope") has its own airlock, robotic arm and an exposed platform for experiments in open space.',
+    facts: { Installed: '2008 (in stages)', Builder: 'JAXA' } },
+  { dir: [.4, -1, .3], node: '38 Cupola', deep: true, name: 'Cupola', kicker: 'Observation Module · ESA / NASA · 2010',
+    text: 'Seven windows facing Earth, including the largest window ever flown in space. Astronauts use the Cupola to run the robotic arm and to photograph the planet below.',
+    facts: { Installed: 'February 2010 (STS-130)', Windows: '7' } },
+  { node: '14 S0 Truss', deep: true, dir: [0, 1, .5], name: 'Truss & Solar Arrays', kicker: 'Power · USA',
+    text: 'The integrated truss is the station\'s backbone. Its eight solar array wings track the Sun, and radiators shed the heat that the station\'s electronics and crew produce.',
+    facts: { 'Array wings': '8', Role: 'Power, cooling, structure' } },
+  { dir: [.5, .8, -.6], node: '42 Alpha Magnetic Spectrometer (AMS 2)', name: 'AMS-02', kicker: 'Particle Physics · 2011',
+    text: 'A cosmic-ray detector mounted on the truss. AMS-02 has recorded billions of particles in the search for dark matter and antimatter.',
+    facts: { Installed: 'May 2011 (STS-134)', Role: 'Cosmic-ray physics' } },
+];
+
+// ---- Chapters DOM ----
+for (const [i, c] of CHAPTERS.entries()) {
+  const s = document.createElement('section');
+  s.innerHTML = `<div class="card"><p class="kicker"></p><h2></h2><p></p><dl class="facts"></dl></div>`;
+  s.querySelector('.kicker').textContent = c.kicker;
+  s.querySelector('h2').textContent = c.name;
+  s.querySelector('.card p:not(.kicker)').textContent = c.text;
+  for (const [k, v] of Object.entries(c.facts)) {
+    s.querySelector('dl').append(Object.assign(document.createElement('dt'), { textContent: k }), Object.assign(document.createElement('dd'), { textContent: v }));
+  }
+  $('chapters').append(s);
+  const dot = Object.assign(document.createElement('button'), { title: c.name, ariaLabel: c.name });
+  dot.onclick = () => scrollTo({ top: i * innerHeight, behavior: 'smooth' });
+  $('dots').append(dot);
+}
+
+// ---- Scene ----
+const renderer = new THREE.WebGLRenderer({ canvas: $('scene'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, .05, 40000);
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+scene.add(sun, new THREE.AmbientLight(0x8899bb, .5));
+
+const starGeo = new THREE.BufferGeometry(), sp = [];
+for (let i = 0; i < 5000; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(20000); sp.push(v.x, v.y, v.z); }
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ size: 1.3, sizeAttenuation: false, color: 0xffffff })));
+
+// Earth: NASA Blue Marble (GIBS), oriented so the ISS's live ground point is directly below.
+const EARTH_R = 4000;
+const lonLatToVec = (lat, lon) => {
+  const phi = (lon + 180) * D, th = (90 - lat) * D;
+  return new THREE.Vector3(-Math.cos(phi) * Math.sin(th), Math.cos(th), Math.sin(phi) * Math.sin(th));
+};
+const ec = document.createElement('canvas');
+ec.width = 2560; ec.height = 1280;
+const ectx = ec.getContext('2d');
+ectx.fillStyle = '#0b2545'; ectx.fillRect(0, 0, ec.width, ec.height);
+const earthTex = new THREE.CanvasTexture(ec);
+earthTex.colorSpace = THREE.SRGBColorSpace;
+for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { ectx.drawImage(img, c * 512, r * 512); earthTex.needsUpdate = true; };
+  img.src = `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/BlueMarble_NextGeneration/default/2004-08-01/500m/2/${r}/${c}.jpeg`;
+}
+const earth = new THREE.Group();
+earth.position.set(0, -EARTH_R - 300, 0);
+earth.add(new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 128, 64), new THREE.MeshStandardMaterial({ map: earthTex, roughness: .9, metalness: 0 })));
+scene.add(earth);
+earth.add(new THREE.Mesh(new THREE.SphereGeometry(EARTH_R * 1.03, 96, 48), new THREE.ShaderMaterial({
+  side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+  fragmentShader: 'varying vec3 vN; void main(){ float i = pow(max(.65 - dot(vN, vec3(0., 0., 1.)), 0.), 5.); gl_FragColor = vec4(.35, .6, 1., 1.) * i * 1.5; }',
+})));
+
+// ---- Live ISS position (wheretheiss.at) drives the Earth below and the sunlight ----
+const earthQ = new THREE.Quaternion(), sunDir = new THREE.Vector3(.6, .5, .3).normalize();
+const fmt = (lat, lon) => `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+async function track() {
+  try {
+    const d = await (await fetch('https://api.wheretheiss.at/v1/satellites/25544')).json();
+    earthQ.setFromUnitVectors(lonLatToVec(d.latitude, d.longitude), new THREE.Vector3(0, 1, 0));
+    sunDir.copy(lonLatToVec(d.solar_lat, d.solar_lon).applyQuaternion(earthQ));
+    $('liveText').textContent = `ISS now over ${fmt(d.latitude, d.longitude)} · ${Math.round(d.altitude)} km up · ${Math.round(d.velocity).toLocaleString()} km/h · ${d.visibility === 'eclipsed' ? "in Earth's shadow" : 'in sunlight'}`;
+  } catch (e) { $('liveText').textContent = 'Live position unavailable'; }
+}
+track();
+setInterval(track, 5000);
+
+// ---- Station ----
+const station = new THREE.Group();
+scene.add(station);
+const views = [];   // per chapter: { center, dist, dir, mats }
+await new Promise(done => new GLTFLoader().load('models/iss.glb', g => {
+  station.add(g.scene);
+  station.updateMatrixWorld(true);
+  const whole = new THREE.Box3().setFromObject(g.scene);
+  for (const c of CHAPTERS) {
+    const obj = c.node && g.scene.getObjectByName(THREE.PropertyBinding.sanitizeNodeName(c.node));
+    let box = whole, meshes = [];
+    if (obj) {
+      box = new THREE.Box3();
+      // A module node also parents the modules docked to it; without `deep`, frame only its own primitives
+      // (children the loader created from the node's mesh, i.e. not themselves glTF nodes).
+      if (c.deep) obj.traverse(o => o.isMesh && meshes.push(o));
+      else meshes = obj.isMesh ? [obj] : obj.children.filter(o => o.isMesh && g.parser.associations.get(o)?.nodes === undefined);
+      for (const m of meshes) {
+        m.geometry.computeBoundingBox();
+        box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+      }
+      if (box.isEmpty()) box.setFromObject(obj);
+    }
+    // Private material copies so highlighting one part never lights up another.
+    const mats = meshes.map(m => (m.material = m.material.clone()));
+    const size = box.getSize(new THREE.Vector3()).length();
+    views.push({ center: box.getCenter(new THREE.Vector3()), dist: Math.max(size * (obj ? c.far || 1.5 : .95), 7), dir: new THREE.Vector3(...c.dir).normalize(), mats });
+  }
+  done();
+}, e => { if (e.total) $('lstatus').textContent = `Loading NASA's ISS 3D model… ${Math.round(e.loaded / e.total * 100)}%`; },
+() => { $('lstatus').textContent = 'Could not load the ISS model.'; }));
+$('loading').style.opacity = 0;
+setTimeout(() => $('loading').remove(), 900);
+
+// ---- Scroll-driven camera ----
+// One smoothed scroll value drives everything. Between two stops the camera pulls back, swings around
+// to the next part's angle (spherical, so it never cuts through the station) and pushes in; it rests at each stop.
+const sections = [...document.querySelectorAll('section')], dots = [...$('dots').children];
+const look = new THREE.Vector3(), dir = new THREE.Vector3(), ca = new THREE.Vector3(), cb = new THREE.Vector3();
+const qTurn = new THREE.Quaternion(), qPart = new THREE.Quaternion();
+let active = -1, last = performance.now(), scrollPos = 0;
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, .05);
+  last = now;
+  const p = Math.min(Math.max(scrollY / innerHeight, 0), CHAPTERS.length - 1);
+  scrollPos += (p - scrollPos) * Math.min(dt * 3.5, 1);
+  const i = Math.min(Math.floor(scrollPos), CHAPTERS.length - 2), t = scrollPos - i;
+  const e = Math.min(Math.max((t - .12) / .76, 0), 1), k = e * e * (3 - 2 * e);   // hold near each stop
+  const a = views[i], b = views[i + 1], mid = Math.sin(Math.PI * k);
+
+  // Station: a single slow yaw that swings out mid-transition and settles at each stop.
+  station.rotation.set(mid * .06, mid * .3 * (i % 2 ? -1 : 1), 0);
+  station.updateMatrixWorld();
+  station.localToWorld(ca.copy(a.center));
+  station.localToWorld(cb.copy(b.center));
+  look.lerpVectors(ca, cb, k);
+  qTurn.setFromUnitVectors(a.dir, b.dir);
+  dir.copy(a.dir).applyQuaternion(qPart.identity().slerp(qTurn, k));
+  camera.position.copy(look).addScaledVector(dir, (a.dist + (b.dist - a.dist) * k) * (1 + mid * .5));
+  camera.lookAt(look);
+
+  const now_i = Math.round(scrollPos);
+  if (now_i !== active) {
+    active = now_i;
+    sections.forEach((s, j) => s.classList.toggle('on', j === active));
+    dots.forEach((d, j) => d.classList.toggle('on', j === active));
+  }
+  const glow = .25 + Math.sin(now * .004) * .15;
+  views.forEach((v, j) => v.mats.forEach(m => { m.emissive?.set(j === active ? 0xff7a3d : 0x000000); m.emissiveIntensity = glow; }));
+
+  earth.quaternion.slerp(earthQ, Math.min(dt * .5, 1));
+  sun.position.copy(sunDir).multiplyScalar(100);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
