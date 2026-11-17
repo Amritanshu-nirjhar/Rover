@@ -93,7 +93,10 @@
   };
   for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, start, { passive: true });
   setInterval(() => { if (ctx.state === 'running') schedule(); }, 250);
-  document.body.append(btn);
+  // A page can host the button in its own layout via an element with id="music-slot"; otherwise it floats top-center.
+  const slot = document.getElementById('music-slot');
+  if (slot) Object.assign(btn.style, { position: 'static', transform: 'none' });
+  (slot || document.body).append(btn);
   label();
   start();   // plays immediately if the browser allows autoplay for this site
 })();
